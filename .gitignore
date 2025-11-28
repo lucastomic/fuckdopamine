@@ -1,0 +1,11 @@
+# DNS request logs for Grafana
+logs/dns_requests.json
+
+# Loki storage
+tmp/
+
+# Build artifacts
+miniDNS
+
+# macOS
+.DS_Store

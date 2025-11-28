@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -101,6 +102,58 @@ func (s *Stats) getCounts() (total, blocked, allowed uint64) {
 }
 
 var stats *Stats
+var logFile *os.File
+var logMutex sync.Mutex
+var logWriteCount uint64
+var logFilePath string
+
+// DNSLogEntry represents a DNS request log entry for Grafana
+type DNSLogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Domain    string `json:"domain"`
+	Blocked   bool   `json:"blocked"`
+	QueryType string `json:"query_type"`
+}
+
+func reopenLogFile() error {
+	if logFile != nil {
+		logFile.Close()
+	}
+	var err error
+	logFile, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	return err
+}
+
+func logToFile(domain string, blocked bool, queryType string) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	if logFile == nil {
+		return
+	}
+
+	entry := DNSLogEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Domain:    domain,
+		Blocked:   blocked,
+		QueryType: queryType,
+	}
+
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+
+	logFile.Write(jsonData)
+	logFile.Write([]byte("\n"))
+	logFile.Sync()
+
+	// Reopen file every 50 writes to trigger Docker filesystem events
+	logWriteCount++
+	if logWriteCount%50 == 0 {
+		reopenLogFile()
+	}
+}
 
 func getUptime() string {
 	uptime := time.Since(startTime)
@@ -124,9 +177,13 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			cleanDomain = strings.TrimSuffix(host, ".")
 		}
 
+		// Get query type (A, AAAA, etc.)
+		queryType := dns.TypeToString[q.Qtype]
+
 		if _, found := forbidden[domainAndTLD]; found {
 			m.Rcode = dns.RcodeRefused
 			stats.recordRequest(cleanDomain, true)
+			logToFile(cleanDomain, true, queryType)
 			w.WriteMsg(m)
 			return
 		} else {
@@ -135,6 +192,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 				m = resp
 			}
 			stats.recordRequest(cleanDomain, false)
+			logToFile(cleanDomain, false, queryType)
 		}
 	}
 
@@ -284,6 +342,17 @@ func main() {
 	sites := os.Args[1:]
 	for _, site := range sites {
 		forbidden[site+"."] = 1
+	}
+
+	// Open log file for Grafana
+	logFilePath = "logs/dns_requests.json"
+	var err error
+	logFile, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("[WARNING] Failed to open log file: %v (Grafana logging disabled)", err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
 	}
 
 	originalResolConf, err := backupAndModifyDNSSettings()
