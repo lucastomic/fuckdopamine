@@ -4,61 +4,171 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-miniDNS is a lightweight local DNS server for macOS that blocks specified websites by refusing their DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The server modifies system DNS settings to `127.0.0.1`, listens on UDP port 53, and automatically restores original DNS configuration on exit.
-
-## Build and Run Commands
-
-**Build the binary:**
-```bash
-go build -o miniDNS
-```
-
-**Run from source (requires sudo for port 53 and DNS modification):**
-```bash
-sudo go run main.go example.com test.com
-```
-
-**Run the binary:**
-```bash
-sudo ./miniDNS example.com test.com
-```
-
-**Build release binary:**
-```bash
-go build -o releases/miniDNS
-```
+miniDNS is a lightweight DNS server daemon for macOS that runs 24/7 as a background service, blocking specified websites by refusing their DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The system consists of a daemon that starts automatically on boot and a CLI client for monitoring.
 
 ## Architecture
 
-### Core Components
+miniDNS has been refactored into a daemon-based architecture with two main components:
 
-**main.go** - Single-file application containing all logic:
+### 1. Daemon (minidnsd)
+**Location:** `cmd/minidnsd/main.go`
 
-- **DNS Query Handler** (`handleDNSRequest`, line 30): Checks incoming DNS queries against the `forbidden` map. Blocked domains return `dns.RcodeRefused`, others are forwarded to Google DNS.
+The daemon runs as a macOS LaunchDaemon with root privileges:
+- Loads configuration from `/etc/minidns/config.json`
+- Backs up and modifies DNS settings to `127.0.0.1`
+- Listens on UDP port 53 for DNS queries
+- Handles IPC via Unix socket at `/tmp/minidns.sock`
+- Logs to `/var/log/minidns/daemon.log` and `/var/log/minidns/dns_requests.json`
+- Saves statistics to `/var/lib/minidns/stats.json` every 5 minutes
+- Restores DNS settings on shutdown
 
-- **Forbidden Sites Map** (line 16): Global `map[string]any{}` storing blocked domains. Domain format must include trailing dot (e.g., `"example.com."`). Populated from command-line args in `main()` (line 102-105).
+**Key Functions:**
+- `handleDNSRequest()`: Checks queries against `forbidden` map, blocks or forwards
+- `forwardDNSQuery()`: Forwards allowed queries to 8.8.8.8
+- `backupAndModifyDNSSettings()`: Modifies Wi-Fi DNS to 127.0.0.1
+- `restoreDNSSettings()`: Restores original DNS on exit
+- `startIPCServer()`: Handles Unix socket connections from CLI
+- `logToFile()`: Writes JSON logs for Grafana integration
 
-- **DNS Forwarder** (`forwardDNSQuery`, line 52): Uses `github.com/miekg/dns` client to forward non-blocked queries to `8.8.8.8:53`.
+### 2. CLI Client (miniDNS)
+**Location:** `cmd/miniDNS/main.go`
 
-- **macOS DNS Management** (`backupAndModifyDNSSettings`, `restoreDNSSettings`, lines 73-93): Uses `networksetup` command to modify Wi-Fi DNS settings. Backup is stored and restored via `defer` in `main()`.
+The CLI client provides an interactive dashboard without requiring sudo:
+- Connects to daemon via Unix socket
+- Displays real-time statistics using termui
+- Shows uptime, request counts, and top domains
+- Supports `dashboard`, `status`, and `help` commands
 
-- **Uptime Tracking** (lines 20-28, 118-126): Background goroutine prints uptime every 10 seconds using `time.Since(startTime)`.
+**Key Functions:**
+- `fetchStats()`: Requests stats from daemon via IPC
+- `renderDashboard()`: Renders termui interface
+- `checkStatus()`: Pings daemon to verify it's running
 
-### Signal Handling
+### 3. Shared Packages
 
-The program uses `signal.Notify` to catch `SIGINT`/`SIGTERM` (line 128-131), ensuring DNS settings are restored via the deferred `restoreDNSSettings()` call before exit.
+**pkg/config/config.go:**
+- `Config` struct with `BlockedSites` and `LogFilePath`
+- `Load()`: Reads config from `/etc/minidns/config.json`
+- `Save()`: Writes config to disk
+- `Default()`: Returns default configuration
 
-### Dependencies
+**pkg/stats/stats.go:**
+- `Stats` struct tracking total/blocked/allowed requests and domain counts
+- `RecordRequest()`: Thread-safe request recording
+- `GetTopDomains()`: Returns top N domains with block status
+- `Save()`/`Load()`: Persist stats across daemon restarts
+
+**pkg/ipc/ipc.go:**
+- Unix socket communication protocol
+- `Request` and `Response` structs for IPC messages
+- `SendRequest()`: Client-side request sender
+- `HandleConnection()`: Server-side connection handler
+- Supports "get_stats" and "ping" request types
+
+## Build and Run Commands
+
+**Build both binaries:**
+```bash
+go build -o minidnsd ./cmd/minidnsd
+go build -o miniDNS ./cmd/miniDNS
+```
+
+**Install as daemon:**
+```bash
+sudo ./install.sh
+```
+
+**View dashboard:**
+```bash
+miniDNS
+# or
+miniDNS dashboard
+```
+
+**Check daemon status:**
+```bash
+miniDNS status
+```
+
+**Manage daemon:**
+```bash
+# Start
+sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+
+# Stop
+sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+
+# View logs
+tail -f /var/log/minidns/daemon.log
+```
+
+**Uninstall:**
+```bash
+sudo ./uninstall.sh
+```
+
+## Configuration
+
+**Config file location:** `/etc/minidns/config.json`
+
+```json
+{
+  "blocked_sites": ["example.com", "facebook.com"],
+  "log_file_path": "/var/log/minidns/dns_requests.json"
+}
+```
+
+After editing config, restart daemon:
+```bash
+sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+```
+
+## File Locations
+
+- **Binaries:** `/usr/local/bin/minidnsd`, `/usr/local/bin/miniDNS`
+- **Config:** `/etc/minidns/config.json`
+- **Stats:** `/var/lib/minidns/stats.json`
+- **LaunchDaemon plist:** `/Library/LaunchDaemons/com.minidns.daemon.plist`
+- **Logs:** `/var/log/minidns/` (daemon.log, dns_requests.json, stdout.log, stderr.log)
+- **Unix socket:** `/tmp/minidns.sock`
+- **Legacy standalone:** `main.go` (deprecated, kept for reference)
+
+## Dependencies
 
 - `github.com/miekg/dns`: DNS protocol implementation for server and client operations
-- Standard library only (no additional external dependencies)
+- `github.com/gizak/termui/v3`: Terminal UI for dashboard
+- Standard library for Unix sockets, JSON, signals, etc.
 
 ## Platform Constraints
 
-**macOS-specific**: Uses `networksetup` command with hardcoded "Wi-Fi" interface. To support other platforms or network interfaces, modify DNS configuration logic in `backupAndModifyDNSSettings()` and `restoreDNSSettings()`.
+**macOS-specific**:
+- Uses `networksetup` command with hardcoded "Wi-Fi" interface
+- Requires macOS LaunchDaemon system
+- To support other platforms, modify:
+  - DNS configuration logic in daemon's `backupAndModifyDNSSettings()` and `restoreDNSSettings()`
+  - LaunchDaemon system (use systemd for Linux, etc.)
 
-## Known Issues
+## IPC Protocol
 
-- DNS restoration uses silent error handling (line 90-92), which may leave DNS settings in incorrect state if restoration fails
+Communication between CLI and daemon uses Unix socket at `/tmp/minidns.sock` with JSON messages:
+
+**Request types:**
+- `"ping"`: Health check, returns `"pong"`
+- `"get_stats"`: Returns full statistics
+
+**Response fields:**
+- `type`: "stats", "pong", or "error"
+- `total_requests`, `blocked_requests`, `allowed_requests`: Counters
+- `top_domains`: Array of {domain, count, blocked}
+- `uptime`: Formatted uptime string (HH:MM:SS)
+- `error`: Error message if type is "error"
+
+## Known Behaviors
+
+- Daemon automatically restarts on crash (LaunchDaemon KeepAlive)
+- Stats persist across daemon restarts via `/var/lib/minidns/stats.json`
+- DNS settings restored on daemon shutdown (graceful or signal-based)
+- Logs rotate automatically via Grafana file watching
 - Hardcoded to "Wi-Fi" interface only
-- No logging for forwarded/blocked queries (only uptime is displayed)
+- Domain format in `forbidden` map includes trailing dot (e.g., `"example.com."`)

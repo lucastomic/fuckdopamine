@@ -1,48 +1,54 @@
 # miniDNS
 
-miniDNS is a lightweight local DNS server written in Go that allows you to block access to specified websites by refusing DNS queries for them. It also forwards all other DNS queries to Google DNS (8.8.8.8). The project includes both the source code and a pre-built binary.
+miniDNS is a lightweight DNS server daemon for macOS that runs 24/7 in the background, blocking specified websites by refusing DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The daemon starts automatically on boot and includes a CLI dashboard for real-time monitoring.
 
 > **Warning:**
-> Modifying your DNS settings can disrupt your internet connection if not restored properly. Use at your own risk. The current implementation is targeted for macOS (using `networksetup` commands) and may require administrator privileges.
+> Modifying your DNS settings can disrupt your internet connection if not restored properly. Use at your own risk. The current implementation is targeted for macOS (using `networksetup` commands) and requires administrator privileges for installation.
 
 ---
 
 ## Features
 
-- **Block Specific Sites:**
-  Specify one or more domains to block. miniDNS will return a refusal for any DNS query matching those sites.
+- **Background Daemon:** Runs continuously as a macOS LaunchDaemon, starting automatically on boot
+- **DNS Blocking:** Block specific websites by refusing DNS queries for them
+- **Real-time Dashboard:** Interactive terminal UI showing statistics and top requested domains
+- **Persistent Stats:** Statistics survive daemon restarts
+- **Configuration File:** Easy-to-edit JSON configuration for blocked sites
+- **Grafana Integration:** JSON logs for visualization with Grafana
+- **IPC Communication:** Unix socket-based communication between daemon and CLI
+
+---
+
+## Architecture
+
+miniDNS consists of two components:
+
+1. **minidnsd** - Background daemon that:
+   - Runs as root to bind to port 53
+   - Modifies DNS settings to 127.0.0.1
+   - Handles all DNS queries
+   - Exposes stats via Unix socket
+   - Logs requests for Grafana
+
+2. **miniDNS** - CLI client that:
+   - Connects to the daemon
+   - Displays interactive dashboard
+   - Shows real-time statistics
+   - Requires no sudo privileges
 
 ---
 
 ## Prerequisites
 
-- **macOS:**
-  This implementation uses the `networksetup` command available on macOS.
-
-- **Go:**
-  To build from source, you need Go installed.
-  Download from [golang.org](https://golang.org/dl/).
-  Alternatively, there is a pre-built binary available for macOS.
-
-- **Administrator Privileges:**
-  Changing DNS settings typically requires administrator privileges. Run the program with the necessary permissions.
+- **macOS:** Uses `networksetup` command and LaunchDaemon system
+- **Go:** Required to build from source (download from [golang.org](https://golang.org/dl/))
+- **Administrator Privileges:** Required for installation only
 
 ---
 
 ## Installation
 
-### Using the Pre-Built Binary
-
-1. Download the pre-built `miniDNS` binary from the [GitHub Releases](https://github.com/yourusername/miniDNS/releases) page.
-
-2. Place the binary in your desired directory.
-
-3. Make sure the binary is executable:
-   ```bash
-   chmod +x miniDNS
-   ```
-
-### Building from Source
+### Quick Install
 
 1. Clone the repository:
    ```bash
@@ -50,65 +56,248 @@ miniDNS is a lightweight local DNS server written in Go that allows you to block
    cd miniDNS
    ```
 
-2. Build the binary:
+2. Run the installation script:
    ```bash
-   go build -o miniDNS
+   sudo ./install.sh
    ```
 
----
-### Creating an Alias
+The installation script will:
+- Build both binaries (`minidnsd` and `miniDNS`)
+- Install them to `/usr/local/bin/`
+- Create configuration directory at `/etc/minidns/`
+- Create a default config file
+- Install and start the LaunchDaemon
 
-To be able to call the `miniDNS` binary from anywhere, you can create an alias. Add the following line to your shell configuration file (`~/.bashrc`, `~/.zshrc`, etc.):
+### Manual Installation
+
+If you prefer to install manually:
 
 ```bash
-alias miniDNS='/path/to/your/miniDNS'
-```
+# Build binaries
+go build -o /usr/local/bin/minidnsd ./cmd/minidnsd
+go build -o /usr/local/bin/miniDNS ./cmd/miniDNS
 
-Replace `/path/to/your/miniDNS` with the actual path to the `miniDNS` binary. After adding the alias, reload your shell configuration:
+# Create directories
+mkdir -p ~/.minidns
+mkdir -p /var/log/minidns
 
-```bash
-source ~/.bashrc  # or ~/.zshrc, depending on your shell
+# Create config file (see Configuration section)
+# Install LaunchDaemon
+sudo cp com.minidns.daemon.plist /Library/LaunchDaemons/
+sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
 ```
 
 ---
 
+## Configuration
+
+Edit the configuration file at `/etc/minidns/config.json`:
+
+```json
+{
+  "blocked_sites": [
+    "example.com",
+    "test.com",
+    "facebook.com"
+  ],
+  "log_file_path": "/var/log/minidns/dns_requests.json"
+}
+```
+
+**After editing the config, restart the daemon:**
+
+```bash
+sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+```
+
+---
 
 ## Usage
 
-To run miniDNS, provide one or more sites (without `http://` or trailing `.`) as arguments. For example, to block `example.com` and `test.com`:
+### View Dashboard
+
+Simply run the CLI client:
 
 ```bash
-sudo ./miniDNS example.com test.com
+miniDNS
 ```
 
-### What Happens When You Run miniDNS
+Or explicitly:
 
-1. **Backup DNS Settings:**
-   miniDNS fetches your current DNS servers for the Wi-Fi interface and stores them.
+```bash
+miniDNS dashboard
+```
 
-2. **Modify DNS Settings:**
-   It sets your DNS server to `127.0.0.1` so that all DNS queries go to the local miniDNS server.
+The dashboard shows:
+- Current uptime
+- Total, blocked, and allowed request counts
+- Top 10 most requested domains
+- Real-time updates every second
 
-3. **Start Local DNS Server:**
-   miniDNS listens on UDP port 53 for DNS queries.
-   - Queries for forbidden sites are refused.
-   - Other queries are forwarded to Google DNS.
+**Press `q` or `Ctrl+C` to exit the dashboard**
 
-4. **Graceful Shutdown:**
-   On receiving an interrupt signal (Ctrl+C or termination), the program restores your original DNS settings before exiting.
+### Check Status
+
+Check if the daemon is running:
+
+```bash
+miniDNS status
+```
+
+### Daemon Management
+
+Start the daemon:
+```bash
+sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+```
+
+Stop the daemon:
+```bash
+sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+```
+
+View daemon logs:
+```bash
+tail -f /var/log/minidns/daemon.log
+```
+
+---
+
+## How It Works
+
+1. **At Boot:**
+   - macOS launches `minidnsd` via LaunchDaemon
+   - Daemon backs up current DNS settings
+   - Sets DNS to `127.0.0.1` (localhost)
+   - Starts DNS server on port 53
+   - Opens Unix socket at `/tmp/minidns.sock` for IPC
+
+2. **DNS Query Handling:**
+   - All DNS queries go to `minidnsd`
+   - Blocked sites receive `REFUSED` response
+   - Other queries forwarded to Google DNS (8.8.8.8)
+   - All requests logged and counted
+
+3. **Dashboard:**
+   - CLI connects to Unix socket
+   - Fetches stats from daemon
+   - Renders interactive UI
+   - Updates every second
+
+4. **On Shutdown:**
+   - Daemon restores original DNS settings
+   - Saves statistics to disk
+   - Cleans up socket
+
+---
+
+## File Locations
+
+- **Binaries:** `/usr/local/bin/minidnsd`, `/usr/local/bin/miniDNS`
+- **Configuration:** `/etc/minidns/config.json`
+- **Statistics:** `/var/lib/minidns/stats.json`
+- **LaunchDaemon:** `/Library/LaunchDaemons/com.minidns.daemon.plist`
+- **Logs:** `/var/log/minidns/`
+  - `daemon.log` - Daemon activity log
+  - `dns_requests.json` - Grafana-compatible request logs
+  - `stdout.log` / `stderr.log` - Standard streams
+
+---
+
+## Uninstallation
+
+Run the uninstallation script:
+
+```bash
+sudo ./uninstall.sh
+```
+
+This will:
+- Stop and remove the daemon
+- Remove binaries
+- Clean up socket
+- Optionally remove logs
+- Restore DNS settings
+
+**Note:** User configuration (`/etc/minidns/`) is kept. Remove manually if desired:
+```bash
+rm -rf ~/.minidns
+```
 
 ---
 
 ## Troubleshooting
 
-- **Port 53 Already in Use:**
-  If you encounter an error indicating that port 53 is in use, ensure no other DNS service is running. You might need to stop conflicting services or run the binary with appropriate privileges.
+### Daemon Won't Start
 
-- **Permission Issues:**
-  Modifying DNS settings requires administrator rights. Use `sudo` or run as an administrator.
+Check daemon logs:
+```bash
+cat /var/log/minidns/daemon.log
+cat /var/log/minidns/stderr.log
+```
 
-- **Platform Compatibility:**
-  This version of miniDNS is designed for macOS. For other platforms, modifications might be needed, especially regarding DNS configuration commands.
+Verify LaunchDaemon is loaded:
+```bash
+sudo launchctl list | grep minidns
+```
+
+### Dashboard Can't Connect
+
+Ensure daemon is running:
+```bash
+miniDNS status
+```
+
+Check socket exists:
+```bash
+ls -l /tmp/minidns.sock
+```
+
+### Port 53 Already in Use
+
+Another service may be using port 53. Check and stop conflicting services.
+
+### DNS Not Working After Uninstall
+
+Manually reset DNS settings:
+```bash
+sudo networksetup -setdnsservers Wi-Fi Empty
+```
+
+---
+
+## Development
+
+### Project Structure
+
+```
+miniDNS/
+├── cmd/
+│   ├── minidnsd/          # Daemon binary
+│   │   └── main.go
+│   └── miniDNS/           # CLI client binary
+│       └── main.go
+├── pkg/
+│   ├── config/            # Configuration management
+│   │   └── config.go
+│   ├── stats/             # Statistics tracking
+│   │   └── stats.go
+│   └── ipc/               # Inter-process communication
+│       └── ipc.go
+├── com.minidns.daemon.plist  # LaunchDaemon configuration
+├── install.sh             # Installation script
+├── uninstall.sh           # Uninstallation script
+└── main.go               # Legacy standalone version
+```
+
+### Building
+
+Build both binaries:
+```bash
+go build -o minidnsd ./cmd/minidnsd
+go build -o miniDNS ./cmd/miniDNS
+```
 
 ---
 
@@ -125,4 +314,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-Enjoy using miniDNS to manage your browsing experience!
+Enjoy using miniDNS to manage your browsing experience 24/7!

@@ -1,0 +1,262 @@
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/lucastomic/miniDNS/pkg/config"
+	"github.com/lucastomic/miniDNS/pkg/ipc"
+	"github.com/lucastomic/miniDNS/pkg/stats"
+	"github.com/miekg/dns"
+)
+
+var (
+	forbidden   map[string]bool
+	statsData   *stats.Stats
+	logFile     *os.File
+	logMutex    sync.Mutex
+	logFilePath string
+)
+
+// DNSLogEntry represents a DNS request log entry for Grafana
+type DNSLogEntry struct {
+	Timestamp string `json:"timestamp"`
+	Domain    string `json:"domain"`
+	Blocked   bool   `json:"blocked"`
+	QueryType string `json:"query_type"`
+}
+
+func logToFile(domain string, blocked bool, queryType string) {
+	if logFile == nil {
+		return
+	}
+
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	entry := DNSLogEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Domain:    domain,
+		Blocked:   blocked,
+		QueryType: queryType,
+	}
+
+	jsonData, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+
+	logFile.Write(jsonData)
+	logFile.Write([]byte("\n"))
+	logFile.Sync()
+}
+
+func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
+	m := new(dns.Msg)
+	m.SetReply(r)
+
+	for _, q := range r.Question {
+		host := q.Name
+		domainAndTLD := strings.Join(strings.Split(host, ".")[1:], ".")
+
+		// Remove trailing dot for display purposes
+		cleanDomain := strings.TrimSuffix(domainAndTLD, ".")
+		if cleanDomain == "" {
+			cleanDomain = strings.TrimSuffix(host, ".")
+		}
+
+		// Get query type (A, AAAA, etc.)
+		queryType := dns.TypeToString[q.Qtype]
+
+		if forbidden[domainAndTLD] {
+			m.Rcode = dns.RcodeRefused
+			statsData.RecordRequest(cleanDomain, true)
+			logToFile(cleanDomain, true, queryType)
+			w.WriteMsg(m)
+			return
+		} else {
+			resp, err := forwardDNSQuery(r)
+			if err == nil {
+				m = resp
+			}
+			statsData.RecordRequest(cleanDomain, false)
+			logToFile(cleanDomain, false, queryType)
+		}
+	}
+
+	w.WriteMsg(m)
+}
+
+func forwardDNSQuery(r *dns.Msg) (*dns.Msg, error) {
+	c := new(dns.Client)
+	resp, _, err := c.Exchange(r, "8.8.8.8:53")
+	return resp, err
+}
+
+func startDNSServer() error {
+	dns.HandleFunc(".", handleDNSRequest)
+
+	server := &dns.Server{
+		Addr: ":53",
+		Net:  "udp",
+	}
+
+	return server.ListenAndServe()
+}
+
+func backupAndModifyDNSSettings() (string, error) {
+	out, err := exec.Command("networksetup", "-getdnsservers", "Wi-Fi").Output()
+	if err != nil {
+		return "", err
+	}
+	backup := strings.TrimSpace(string(out))
+
+	err = exec.Command("networksetup", "-setdnsservers", "Wi-Fi", "127.0.0.1").Run()
+	if err != nil {
+		return "", err
+	}
+
+	return backup, nil
+}
+
+func restoreDNSSettings(backup string) {
+	if backup == "" || backup == "There aren't any DNS Servers set on Wi-Fi." {
+		exec.Command("networksetup", "-setdnsservers", "Wi-Fi", "Empty").Run()
+	} else {
+		exec.Command("networksetup", "-setdnsservers", "Wi-Fi", backup).Run()
+	}
+}
+
+func startIPCServer(listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			continue
+		}
+		go ipc.HandleConnection(conn, statsData, forbidden)
+	}
+}
+
+func main() {
+	// Setup logging
+	logDir := "/var/log/minidns"
+	os.MkdirAll(logDir, 0755)
+
+	daemonLog, err := os.OpenFile(filepath.Join(logDir, "daemon.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		log.SetOutput(daemonLog)
+		defer daemonLog.Close()
+	}
+
+	log.Println("[STARTUP] miniDNS daemon starting...")
+
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("[CONFIG] Failed to load config: %v, using defaults", err)
+		cfg = config.Default()
+		if err := config.Save(cfg); err != nil {
+			log.Printf("[CONFIG] Failed to save default config: %v", err)
+		}
+	}
+
+	// Initialize forbidden sites map
+	forbidden = make(map[string]bool)
+	for _, site := range cfg.BlockedSites {
+		forbidden[site+"."] = true
+	}
+	log.Printf("[CONFIG] Loaded %d blocked sites", len(forbidden))
+
+	// Load or create stats
+	statsPath := config.GetStatsPath()
+	// Create stats directory if it doesn't exist
+	os.MkdirAll(filepath.Dir(statsPath), 0755)
+
+	statsData, err = stats.Load(statsPath)
+	if err != nil {
+		log.Printf("[STATS] Failed to load stats: %v, starting fresh", err)
+		statsData = stats.New()
+	}
+
+	// Setup periodic stats saving
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := statsData.Save(statsPath); err != nil {
+				log.Printf("[STATS] Failed to save stats: %v", err)
+			}
+		}
+	}()
+
+	// Open log file for DNS requests
+	logFilePath = cfg.LogFilePath
+	os.MkdirAll(filepath.Dir(logFilePath), 0755)
+	logFile, err = os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("[LOG] Failed to open DNS log file: %v", err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
+	// Backup and modify DNS settings
+	originalDNS, err := backupAndModifyDNSSettings()
+	if err != nil {
+		log.Fatalf("[DNS] Failed to modify DNS settings: %v", err)
+	}
+	log.Printf("[DNS] Backed up DNS settings: %s", originalDNS)
+	defer func() {
+		log.Println("[SHUTDOWN] Restoring DNS settings...")
+		restoreDNSSettings(originalDNS)
+	}()
+
+	// Remove old socket if it exists
+	os.Remove(ipc.SocketPath)
+
+	// Start IPC server
+	listener, err := net.Listen("unix", ipc.SocketPath)
+	if err != nil {
+		log.Fatalf("[IPC] Failed to create Unix socket: %v", err)
+	}
+	defer listener.Close()
+	defer os.Remove(ipc.SocketPath)
+
+	// Make socket accessible
+	os.Chmod(ipc.SocketPath, 0666)
+
+	log.Println("[IPC] Starting IPC server...")
+	go startIPCServer(listener)
+
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Start DNS server in goroutine
+	go func() {
+		log.Println("[DNS] Starting DNS server on port 53...")
+		if err := startDNSServer(); err != nil {
+			log.Fatalf("[DNS] Failed to start DNS server: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	sig := <-sigChan
+	log.Printf("[SHUTDOWN] Received signal: %v", sig)
+
+	// Save stats before exit
+	if err := statsData.Save(statsPath); err != nil {
+		log.Printf("[STATS] Failed to save stats on shutdown: %v", err)
+	}
+
+	log.Println("[SHUTDOWN] miniDNS daemon stopped")
+}
