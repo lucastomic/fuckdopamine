@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,11 +22,12 @@ import (
 )
 
 var (
-	forbidden   map[string]bool
-	statsData   *stats.Stats
-	logFile     *os.File
-	logMutex    sync.Mutex
-	logFilePath string
+	forbidden      map[string]bool
+	forbiddenMutex sync.RWMutex
+	statsData      *stats.Stats
+	logFile        *os.File
+	logMutex       sync.Mutex
+	logFilePath    string
 
 	// Pause state
 	pauseMutex sync.RWMutex
@@ -130,6 +133,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		blocked := false
 		if !paused {
 			// Check if this domain or any parent domain is blocked
+			forbiddenMutex.RLock()
 			if forbidden[host] {
 				// Exact match (e.g., linkedin.com.)
 				blocked = true
@@ -143,6 +147,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					}
 				}
 			}
+			forbiddenMutex.RUnlock()
 		}
 
 		if blocked {
@@ -207,6 +212,95 @@ func pauseUntilFn() time.Time {
 	return pauseUntil
 }
 
+// Block functions for managing blocked sites at runtime
+func blockDomain(domain string) error {
+	// Normalize domain (remove trailing dot if present, then add it)
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	if domain == "" {
+		return errors.New("domain cannot be empty")
+	}
+
+	key := domain + "."
+
+	forbiddenMutex.Lock()
+	defer forbiddenMutex.Unlock()
+
+	if forbidden[key] {
+		return errors.New("domain is already blocked")
+	}
+
+	forbidden[key] = true
+
+	// Save to config file
+	if err := saveBlockedSitesToConfig(); err != nil {
+		// Rollback
+		delete(forbidden, key)
+		return err
+	}
+
+	log.Printf("[BLOCK] Added %s to block list", domain)
+	return nil
+}
+
+func unblockDomain(domain string) error {
+	// Normalize domain
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	if domain == "" {
+		return errors.New("domain cannot be empty")
+	}
+
+	key := domain + "."
+
+	forbiddenMutex.Lock()
+	defer forbiddenMutex.Unlock()
+
+	if !forbidden[key] {
+		return errors.New("domain is not blocked")
+	}
+
+	delete(forbidden, key)
+
+	// Save to config file
+	if err := saveBlockedSitesToConfig(); err != nil {
+		// Rollback
+		forbidden[key] = true
+		return err
+	}
+
+	log.Printf("[BLOCK] Removed %s from block list", domain)
+	return nil
+}
+
+func listBlockedDomains() []string {
+	forbiddenMutex.RLock()
+	defer forbiddenMutex.RUnlock()
+
+	domains := make([]string, 0, len(forbidden))
+	for domain := range forbidden {
+		// Remove trailing dot for display
+		domains = append(domains, strings.TrimSuffix(domain, "."))
+	}
+	sort.Strings(domains)
+	return domains
+}
+
+func saveBlockedSitesToConfig() error {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+	}
+
+	// Update blocked sites from current forbidden map
+	sites := make([]string, 0, len(forbidden))
+	for domain := range forbidden {
+		sites = append(sites, strings.TrimSuffix(domain, "."))
+	}
+	sort.Strings(sites)
+	cfg.BlockedSites = sites
+
+	return config.Save(cfg)
+}
+
 func startDNSServer() error {
 	dns.HandleFunc(".", handleDNSRequest)
 
@@ -242,12 +336,18 @@ func restoreDNSSettings(backup string) {
 }
 
 func startIPCServer(listener net.Listener) {
+	blockFuncs := ipc.BlockFuncs{
+		Block:       blockDomain,
+		Unblock:     unblockDomain,
+		ListBlocked: listBlockedDomains,
+	}
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			continue
 		}
-		go ipc.HandleConnection(conn, statsData, forbidden, isPausedFn, pauseUntilFn, pauseBlocking, getActivityData)
+		go ipc.HandleConnection(conn, statsData, forbidden, isPausedFn, pauseUntilFn, pauseBlocking, getActivityData, blockFuncs)
 	}
 }
 

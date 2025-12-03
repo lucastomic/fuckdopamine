@@ -12,7 +12,8 @@ const SocketPath = "/tmp/fuckdopamine.sock"
 
 // Request represents a client request
 type Request struct {
-	Type string `json:"type"` // "get_stats", "ping", "pause"
+	Type   string `json:"type"`             // "get_stats", "ping", "pause", "block", "unblock", "list_blocked"
+	Domain string `json:"domain,omitempty"` // Domain for block/unblock operations
 }
 
 // Response represents a server response
@@ -34,6 +35,10 @@ type Response struct {
 
 	// Activity data for sparkline (last 60 seconds)
 	RecentActivity []float64 `json:"recent_activity,omitempty"`
+
+	// Blocked sites management
+	BlockedSites []string `json:"blocked_sites,omitempty"` // For list_blocked response
+	Message      string   `json:"message,omitempty"`       // Success/info message
 }
 
 // SendRequest sends a request to the daemon and returns the response
@@ -63,8 +68,15 @@ func SendRequest(req Request) (*Response, error) {
 	return &resp, nil
 }
 
+// BlockFuncs holds the functions for managing blocked sites
+type BlockFuncs struct {
+	Block       func(domain string) error    // Add a domain to block list
+	Unblock     func(domain string) error    // Remove a domain from block list
+	ListBlocked func() []string              // Get all blocked domains
+}
+
 // HandleConnection handles a single IPC connection
-func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool, isPausedFn func() bool, pauseUntilFn func() time.Time, pauseFn func(), getActivityFn func() []float64) {
+func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool, isPausedFn func() bool, pauseUntilFn func() time.Time, pauseFn func(), getActivityFn func() []float64, blockFuncs BlockFuncs) {
 	defer conn.Close()
 
 	// Set deadline for operations
@@ -116,6 +128,40 @@ func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]boo
 
 	case "ping":
 		resp = Response{Type: "pong"}
+
+	case "block":
+		if req.Domain == "" {
+			sendError(conn, "domain is required")
+			return
+		}
+		if err := blockFuncs.Block(req.Domain); err != nil {
+			sendError(conn, err.Error())
+			return
+		}
+		resp = Response{
+			Type:    "success",
+			Message: req.Domain + " has been blocked",
+		}
+
+	case "unblock":
+		if req.Domain == "" {
+			sendError(conn, "domain is required")
+			return
+		}
+		if err := blockFuncs.Unblock(req.Domain); err != nil {
+			sendError(conn, err.Error())
+			return
+		}
+		resp = Response{
+			Type:    "success",
+			Message: req.Domain + " has been unblocked",
+		}
+
+	case "list_blocked":
+		resp = Response{
+			Type:         "blocked_list",
+			BlockedSites: blockFuncs.ListBlocked(),
+		}
 
 	default:
 		sendError(conn, "unknown request type")
