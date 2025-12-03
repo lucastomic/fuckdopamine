@@ -25,6 +25,11 @@ var (
 	logFile     *os.File
 	logMutex    sync.Mutex
 	logFilePath string
+
+	// Pause state
+	pauseMutex sync.RWMutex
+	isPaused   bool
+	pauseUntil time.Time
 )
 
 // DNSLogEntry represents a DNS request log entry for Grafana
@@ -64,6 +69,14 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 
+	// Check if pause expired and auto-resume
+	checkAndResumePause()
+
+	// Check if currently paused
+	pauseMutex.RLock()
+	paused := isPaused
+	pauseMutex.RUnlock()
+
 	for _, q := range r.Question {
 		host := q.Name
 		queryType := dns.TypeToString[q.Qtype]
@@ -71,18 +84,21 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		// Remove trailing dot for display
 		cleanDomain := strings.TrimSuffix(host, ".")
 
-		// Check if this domain or any parent domain is blocked
+		// If paused, allow all requests
 		blocked := false
-		if forbidden[host] {
-			// Exact match (e.g., linkedin.com.)
-			blocked = true
-		} else {
-			// Check if it's a subdomain of any blocked domain
-			// e.g., perf.linkedin.com. should match linkedin.com.
-			for blockedDomain := range forbidden {
-				if host != blockedDomain && strings.HasSuffix(host, "."+blockedDomain) {
-					blocked = true
-					break
+		if !paused {
+			// Check if this domain or any parent domain is blocked
+			if forbidden[host] {
+				// Exact match (e.g., linkedin.com.)
+				blocked = true
+			} else {
+				// Check if it's a subdomain of any blocked domain
+				// e.g., perf.linkedin.com. should match linkedin.com.
+				for blockedDomain := range forbidden {
+					if host != blockedDomain && strings.HasSuffix(host, "."+blockedDomain) {
+						blocked = true
+						break
+					}
 				}
 			}
 		}
@@ -110,6 +126,43 @@ func forwardDNSQuery(r *dns.Msg) (*dns.Msg, error) {
 	c := new(dns.Client)
 	resp, _, err := c.Exchange(r, "8.8.8.8:53")
 	return resp, err
+}
+
+// Pause functions
+func pauseBlocking() {
+	pauseMutex.Lock()
+	defer pauseMutex.Unlock()
+
+	if !isPaused {
+		isPaused = true
+		pauseUntil = time.Now().Add(10 * time.Minute)
+		statsData.StartPause()
+		log.Printf("[PAUSE] Blocking paused for 10 minutes until %s", pauseUntil.Format("15:04:05"))
+	}
+}
+
+func checkAndResumePause() {
+	pauseMutex.Lock()
+	defer pauseMutex.Unlock()
+
+	if isPaused && time.Now().After(pauseUntil) {
+		isPaused = false
+		pauseUntil = time.Time{}
+		statsData.EndPause()
+		log.Println("[PAUSE] Blocking resumed")
+	}
+}
+
+func isPausedFn() bool {
+	pauseMutex.RLock()
+	defer pauseMutex.RUnlock()
+	return isPaused
+}
+
+func pauseUntilFn() time.Time {
+	pauseMutex.RLock()
+	defer pauseMutex.RUnlock()
+	return pauseUntil
 }
 
 func startDNSServer() error {
@@ -152,7 +205,7 @@ func startIPCServer(listener net.Listener) {
 		if err != nil {
 			continue
 		}
-		go ipc.HandleConnection(conn, statsData, forbidden)
+		go ipc.HandleConnection(conn, statsData, forbidden, isPausedFn, pauseUntilFn, pauseBlocking)
 	}
 }
 

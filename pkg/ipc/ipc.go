@@ -12,18 +12,25 @@ const SocketPath = "/tmp/minidns.sock"
 
 // Request represents a client request
 type Request struct {
-	Type string `json:"type"` // "get_stats", "ping"
+	Type string `json:"type"` // "get_stats", "ping", "pause"
 }
 
 // Response represents a server response
 type Response struct {
-	Type            string             `json:"type"` // "stats", "pong", "error"
+	Type            string             `json:"type"` // "stats", "pong", "paused", "error"
 	TotalRequests   uint64             `json:"total_requests,omitempty"`
 	BlockedRequests uint64             `json:"blocked_requests,omitempty"`
 	AllowedRequests uint64             `json:"allowed_requests,omitempty"`
 	TopDomains      []stats.DomainInfo `json:"top_domains,omitempty"`
 	Uptime          string             `json:"uptime,omitempty"`
 	Error           string             `json:"error,omitempty"`
+
+	// Pause info
+	IsPaused         bool   `json:"is_paused,omitempty"`
+	PauseEndsAt      string `json:"pause_ends_at,omitempty"`
+	PauseCount       uint64 `json:"pause_count,omitempty"`
+	TotalPauseTime   string `json:"total_pause_time,omitempty"`
+	TotalBlockingTime string `json:"total_blocking_time,omitempty"`
 }
 
 // SendRequest sends a request to the daemon and returns the response
@@ -54,7 +61,7 @@ func SendRequest(req Request) (*Response, error) {
 }
 
 // HandleConnection handles a single IPC connection
-func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool) {
+func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool, isPausedFn func() bool, pauseUntilFn func() time.Time, pauseFn func()) {
 	defer conn.Close()
 
 	// Set deadline for operations
@@ -75,17 +82,37 @@ func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]boo
 		total, blocked, allowed := s.GetCounts()
 		topDomains := s.GetTopDomains(10, blockedSites)
 		uptime := s.GetUptime()
+		pauseCount, totalPauseTime, totalBlockingTime := s.GetPauseStats()
 
 		resp = Response{
-			Type:            "stats",
-			TotalRequests:   total,
-			BlockedRequests: blocked,
-			AllowedRequests: allowed,
-			TopDomains:      topDomains,
-			Uptime:          formatUptime(uptime),
+			Type:              "stats",
+			TotalRequests:     total,
+			BlockedRequests:   blocked,
+			AllowedRequests:   allowed,
+			TopDomains:        topDomains,
+			Uptime:            formatUptime(uptime),
+			IsPaused:          isPausedFn(),
+			PauseCount:        pauseCount,
+			TotalPauseTime:    formatDuration(totalPauseTime),
+			TotalBlockingTime: formatDuration(totalBlockingTime),
 		}
+
+		if isPausedFn() {
+			pauseUntil := pauseUntilFn()
+			resp.PauseEndsAt = pauseUntil.Format(time.RFC3339)
+		}
+
+	case "pause":
+		pauseFn()
+		pauseUntil := pauseUntilFn()
+		resp = Response{
+			Type:        "paused",
+			PauseEndsAt: pauseUntil.Format(time.RFC3339),
+		}
+
 	case "ping":
 		resp = Response{Type: "pong"}
+
 	default:
 		sendError(conn, "unknown request type")
 		return
@@ -103,6 +130,22 @@ func sendError(conn net.Conn, message string) {
 }
 
 func formatUptime(d time.Duration) string {
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	seconds := int(d.Seconds()) % 60
+	return string([]byte{
+		byte('0' + hours/10),
+		byte('0' + hours%10),
+		':',
+		byte('0' + minutes/10),
+		byte('0' + minutes%10),
+		':',
+		byte('0' + seconds/10),
+		byte('0' + seconds%10),
+	})
+}
+
+func formatDuration(d time.Duration) string {
 	hours := int(d.Hours())
 	minutes := int(d.Minutes()) % 60
 	seconds := int(d.Seconds()) % 60

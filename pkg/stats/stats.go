@@ -16,6 +16,11 @@ type Stats struct {
 	AllowedRequests uint64            `json:"allowed_requests"`
 	DomainCounts    map[string]uint64 `json:"domain_counts"`
 	StartTime       time.Time         `json:"start_time"`
+
+	// Pause tracking
+	PauseCount       uint64        `json:"pause_count"`
+	TotalPauseTime   time.Duration `json:"total_pause_time"`
+	pauseStartTime   time.Time     // Internal: when current pause started
 }
 
 // DomainInfo represents domain statistics with block status
@@ -113,4 +118,65 @@ func Load(path string) (*Stats, error) {
 	}
 
 	return &s, nil
+}
+
+// StartPause records the start of a pause period
+func (s *Stats) StartPause() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.PauseCount++
+	s.pauseStartTime = time.Now()
+}
+
+// EndPause records the end of a pause period
+func (s *Stats) EndPause() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.pauseStartTime.IsZero() {
+		pauseDuration := time.Since(s.pauseStartTime)
+		s.TotalPauseTime += pauseDuration
+		s.pauseStartTime = time.Time{} // Reset
+	}
+}
+
+// IsPaused returns whether the stats are currently tracking a pause
+func (s *Stats) IsPaused() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.pauseStartTime.IsZero()
+}
+
+// GetBlockingTime returns total time spent blocking (uptime - pause time)
+func (s *Stats) GetBlockingTime() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	totalTime := time.Since(s.StartTime)
+	currentPauseDuration := time.Duration(0)
+
+	// Add current pause duration if paused
+	if !s.pauseStartTime.IsZero() {
+		currentPauseDuration = time.Since(s.pauseStartTime)
+	}
+
+	return totalTime - s.TotalPauseTime - currentPauseDuration
+}
+
+// GetPauseStats returns pause count, total pause time, and total blocking time
+func (s *Stats) GetPauseStats() (pauseCount uint64, totalPauseTime, totalBlockingTime time.Duration) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	currentPauseDuration := time.Duration(0)
+	if !s.pauseStartTime.IsZero() {
+		currentPauseDuration = time.Since(s.pauseStartTime)
+	}
+
+	totalTime := time.Since(s.StartTime)
+	totalPause := s.TotalPauseTime + currentPauseDuration
+	totalBlocking := totalTime - totalPause
+
+	return s.PauseCount, totalPause, totalBlocking
 }
