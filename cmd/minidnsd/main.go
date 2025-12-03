@@ -66,18 +66,28 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 
 	for _, q := range r.Question {
 		host := q.Name
-		domainAndTLD := strings.Join(strings.Split(host, ".")[1:], ".")
-
-		// Remove trailing dot for display purposes
-		cleanDomain := strings.TrimSuffix(domainAndTLD, ".")
-		if cleanDomain == "" {
-			cleanDomain = strings.TrimSuffix(host, ".")
-		}
-
-		// Get query type (A, AAAA, etc.)
 		queryType := dns.TypeToString[q.Qtype]
 
-		if forbidden[domainAndTLD] {
+		// Remove trailing dot for display
+		cleanDomain := strings.TrimSuffix(host, ".")
+
+		// Check if this domain or any parent domain is blocked
+		blocked := false
+		if forbidden[host] {
+			// Exact match (e.g., linkedin.com.)
+			blocked = true
+		} else {
+			// Check if it's a subdomain of any blocked domain
+			// e.g., perf.linkedin.com. should match linkedin.com.
+			for blockedDomain := range forbidden {
+				if host != blockedDomain && strings.HasSuffix(host, "."+blockedDomain) {
+					blocked = true
+					break
+				}
+			}
+		}
+
+		if blocked {
 			m.Rcode = dns.RcodeRefused
 			statsData.RecordRequest(cleanDomain, true)
 			logToFile(cleanDomain, true, queryType)
