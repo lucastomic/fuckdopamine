@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lucastomic/miniDNS/pkg/config"
-	"github.com/lucastomic/miniDNS/pkg/ipc"
-	"github.com/lucastomic/miniDNS/pkg/stats"
+	"github.com/lucastomic/fuckdopamine/pkg/config"
+	"github.com/lucastomic/fuckdopamine/pkg/ipc"
+	"github.com/lucastomic/fuckdopamine/pkg/stats"
 	"github.com/miekg/dns"
 )
 
@@ -211,7 +211,7 @@ func startIPCServer(listener net.Listener) {
 
 func main() {
 	// Setup logging
-	logDir := "/var/log/minidns"
+	logDir := "/var/log/fuckdopamine"
 	os.MkdirAll(logDir, 0755)
 
 	daemonLog, err := os.OpenFile(filepath.Join(logDir, "daemon.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -220,7 +220,7 @@ func main() {
 		defer daemonLog.Close()
 	}
 
-	log.Println("[STARTUP] miniDNS daemon starting...")
+	log.Println("[STARTUP] fuckdopamine daemon starting...")
 
 	// Load configuration
 	cfg, err := config.Load()
@@ -321,5 +321,5 @@ func main() {
 		log.Printf("[STATS] Failed to save stats on shutdown: %v", err)
 	}
 
-	log.Println("[SHUTDOWN] miniDNS daemon stopped")
+	log.Println("[SHUTDOWN] fuckdopamine daemon stopped")
 }

@@ -1,4 +1,4 @@
-module github.com/lucastomic/miniDNS
+module github.com/lucastomic/fuckdopamine
 
 go 1.22.2
 

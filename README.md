@@ -1,17 +1,41 @@
-# miniDNS
+# fuckdopamine
 
 **A lightweight DNS-based website blocker that runs 24/7 on macOS**
 
-miniDNS is a background service that blocks access to distracting websites by intercepting DNS queries at the system level. Perfect for productivity, focus time, parental controls, or breaking social media habits.
+fuckdopamine is a background service that blocks access to distracting websites by intercepting DNS queries at the system level. Perfect for productivity, focus time, parental controls, or breaking social media habits.
 
-Unlike browser extensions that can be easily disabled, miniDNS runs as a system daemon with root privileges, making it more resistant to circumvention. All DNS queries are handled locally, with blocked sites returning a DNS refusal and all other queries forwarded to Google DNS (8.8.8.8).
+Unlike browser extensions that can be easily disabled, fuckdopamine runs as a system daemon with root privileges, making it more resistant to circumvention. All DNS queries are handled locally, with blocked sites returning a DNS refusal and all other queries forwarded to Google DNS (8.8.8.8).
 
 > **Warning:**
 > This tool modifies your system DNS settings. While it safely restores them on uninstall, improper use could temporarily disrupt your internet connection. Requires administrator privileges for installation.
 
 ---
 
-## What Can You Do With miniDNS?
+## Why Choose fuckdopamine?
+
+**fuckdopamine isn't just another website blocker** — it's designed to solve the limitations of traditional blocking tools:
+
+### 🚫 Browser Extensions Are Easy to Bypass
+Browser extensions can be disabled with a single click, work only in one browser, and are useless in incognito mode. **fuckdopamine blocks at the DNS level**, making it impossible to bypass by switching browsers, using private browsing, changing Google accounts, or clearing cookies.
+
+### ⏰ True 24/7 Protection
+Unlike apps that only work when you remember to launch them, **fuckdopamine runs continuously as a system daemon**. You get genuine 24-hour metrics and uninterrupted protection from the moment your computer boots.
+
+### 🌐 System-Wide Blocking
+Most tools only work in web browsers. **fuckdopamine blocks across ALL applications** — browsers, mobile apps, command-line tools, and background processes. If it uses DNS, it's covered.
+
+### 🔒 Protected Against Self-Sabotage
+In moments of weakness, it's tempting to disable your blocker. **fuckdopamine requires administrator privileges** to modify or disable, creating a deliberate barrier that helps you stick to your commitments.
+
+### 🛡️ Privacy-First & Open Source
+**Zero data collection. Zero cloud services. 100% local.** Your browsing patterns and statistics never leave your machine. Plus, the code is fully open source — inspect it, audit it, modify it, or contribute to it.
+
+### 🚀 Lightweight & Free
+No performance impact on your browsing. No subscriptions. No premium tiers. No hidden costs. Just a **free, efficient tool** that does one thing exceptionally well.
+
+---
+
+## What Can You Do With fuckdopamine?
 
 - **🎯 Stay Focused:** Block social media during work hours
 - **⏰ Build Better Habits:** Limit access to time-wasting websites
@@ -38,16 +62,16 @@ Unlike browser extensions that can be easily disabled, miniDNS runs as a system 
 
 ## Architecture
 
-miniDNS consists of two components:
+fuckdopamine consists of two components:
 
-1. **minidnsd** - Background daemon that:
+1. **fuckdopamined** - Background daemon that:
    - Runs as root to bind to port 53
    - Modifies DNS settings to 127.0.0.1
    - Handles all DNS queries
    - Exposes stats via Unix socket
    - Logs requests for Grafana
 
-2. **miniDNS** - CLI client that:
+2. **fuckdopamine** - CLI client that:
    - Connects to the daemon
    - Displays interactive dashboard
    - Shows real-time statistics
@@ -69,8 +93,8 @@ miniDNS consists of two components:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/miniDNS.git
-   cd miniDNS
+   git clone https://github.com/yourusername/fuckdopamine.git
+   cd fuckdopamine
    ```
 
 2. Run the installation script:
@@ -79,9 +103,9 @@ miniDNS consists of two components:
    ```
 
 The installation script will:
-- Build both binaries (`minidnsd` and `miniDNS`)
+- Build both binaries (`fuckdopamined` and `fuckdopamine`)
 - Install them to `/usr/local/bin/`
-- Create configuration directory at `/etc/minidns/`
+- Create configuration directory at `/etc/fuckdopamine/`
 - Create a default config file
 - Install and start the LaunchDaemon
 
@@ -91,25 +115,25 @@ If you prefer to install manually:
 
 ```bash
 # Build binaries
-go build -o /usr/local/bin/minidnsd ./cmd/minidnsd
-go build -o /usr/local/bin/miniDNS ./cmd/miniDNS
+go build -o /usr/local/bin/fuckdopamined ./cmd/fuckdopamined
+go build -o /usr/local/bin/fuckdopamine ./cmd/fuckdopamine
 
 # Create directories
-sudo mkdir -p /etc/minidns
-sudo mkdir -p /var/lib/minidns
-sudo mkdir -p /var/log/minidns
+sudo mkdir -p /etc/fuckdopamine
+sudo mkdir -p /var/lib/fuckdopamine
+sudo mkdir -p /var/log/fuckdopamine
 
 # Create config file (see Configuration section)
 # Install LaunchDaemon
-sudo cp com.minidns.daemon.plist /Library/LaunchDaemons/
-sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo cp com.fuckdopamine.daemon.plist /Library/LaunchDaemons/
+sudo launchctl load /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 ```
 
 ---
 
 ## Configuration
 
-Edit the configuration file at `/etc/minidns/config.json`:
+Edit the configuration file at `/etc/fuckdopamine/config.json`:
 
 ```json
 {
@@ -118,15 +142,15 @@ Edit the configuration file at `/etc/minidns/config.json`:
     "test.com",
     "facebook.com"
   ],
-  "log_file_path": "/var/log/minidns/dns_requests.json"
+  "log_file_path": "/var/log/fuckdopamine/dns_requests.json"
 }
 ```
 
 **After editing the config, restart the daemon:**
 
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
-sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 ```
 
 ---
@@ -138,13 +162,13 @@ sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
 Simply run the CLI client:
 
 ```bash
-miniDNS
+fuckdopamine
 ```
 
 Or explicitly:
 
 ```bash
-miniDNS dashboard
+fuckdopamine dashboard
 ```
 
 The dashboard shows:
@@ -162,7 +186,7 @@ The dashboard shows:
 Check if the daemon is running:
 
 ```bash
-miniDNS status
+fuckdopamine status
 ```
 
 ### Pause Blocking
@@ -170,7 +194,7 @@ miniDNS status
 Temporarily pause blocking for 10 minutes:
 
 ```bash
-miniDNS pause
+fuckdopamine pause
 ```
 
 This allows access to all blocked sites for 10 minutes, then automatically resumes blocking. The pause statistics are tracked persistently and displayed in the dashboard.
@@ -179,17 +203,17 @@ This allows access to all blocked sites for 10 minutes, then automatically resum
 
 Start the daemon:
 ```bash
-sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 ```
 
 Stop the daemon:
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 ```
 
 View daemon logs:
 ```bash
-tail -f /var/log/minidns/daemon.log
+tail -f /var/log/fuckdopamine/daemon.log
 ```
 
 ---
@@ -197,14 +221,14 @@ tail -f /var/log/minidns/daemon.log
 ## How It Works
 
 1. **At Boot:**
-   - macOS launches `minidnsd` via LaunchDaemon
+   - macOS launches `fuckdopamined` via LaunchDaemon
    - Daemon backs up current DNS settings
    - Sets DNS to `127.0.0.1` (localhost)
    - Starts DNS server on port 53
-   - Opens Unix socket at `/tmp/minidns.sock` for IPC
+   - Opens Unix socket at `/tmp/fuckdopamine.sock` for IPC
 
 2. **DNS Query Handling:**
-   - All DNS queries go to `minidnsd`
+   - All DNS queries go to `fuckdopamined`
    - If paused, all queries are allowed through
    - Blocked sites receive `REFUSED` response
    - Other queries forwarded to Google DNS (8.8.8.8)
@@ -231,11 +255,11 @@ tail -f /var/log/minidns/daemon.log
 
 ## File Locations
 
-- **Binaries:** `/usr/local/bin/minidnsd`, `/usr/local/bin/miniDNS`
-- **Configuration:** `/etc/minidns/config.json`
-- **Statistics:** `/var/lib/minidns/stats.json`
-- **LaunchDaemon:** `/Library/LaunchDaemons/com.minidns.daemon.plist`
-- **Logs:** `/var/log/minidns/`
+- **Binaries:** `/usr/local/bin/fuckdopamined`, `/usr/local/bin/fuckdopamine`
+- **Configuration:** `/etc/fuckdopamine/config.json`
+- **Statistics:** `/var/lib/fuckdopamine/stats.json`
+- **LaunchDaemon:** `/Library/LaunchDaemons/com.fuckdopamine.daemon.plist`
+- **Logs:** `/var/log/fuckdopamine/`
   - `daemon.log` - Daemon activity log
   - `dns_requests.json` - Grafana-compatible request logs
   - `stdout.log` / `stderr.log` - Standard streams
@@ -259,8 +283,8 @@ This will:
 
 **Note:** Configuration and statistics are kept. Remove manually if desired:
 ```bash
-sudo rm -rf /etc/minidns
-sudo rm -rf /var/lib/minidns
+sudo rm -rf /etc/fuckdopamine
+sudo rm -rf /var/lib/fuckdopamine
 ```
 
 ---
@@ -271,25 +295,25 @@ sudo rm -rf /var/lib/minidns
 
 Check daemon logs:
 ```bash
-cat /var/log/minidns/daemon.log
-cat /var/log/minidns/stderr.log
+cat /var/log/fuckdopamine/daemon.log
+cat /var/log/fuckdopamine/stderr.log
 ```
 
 Verify LaunchDaemon is loaded:
 ```bash
-sudo launchctl list | grep minidns
+sudo launchctl list | grep fuckdopamine
 ```
 
 ### Dashboard Can't Connect
 
 Ensure daemon is running:
 ```bash
-miniDNS status
+fuckdopamine status
 ```
 
 Check socket exists:
 ```bash
-ls -l /tmp/minidns.sock
+ls -l /tmp/fuckdopamine.sock
 ```
 
 ### Port 53 Already in Use
@@ -310,11 +334,11 @@ sudo networksetup -setdnsservers Wi-Fi Empty
 ### Project Structure
 
 ```
-miniDNS/
+fuckdopamine/
 ├── cmd/
-│   ├── minidnsd/          # Daemon binary
+│   ├── fuckdopamined/          # Daemon binary
 │   │   └── main.go
-│   └── miniDNS/           # CLI client binary
+│   └── fuckdopamine/           # CLI client binary
 │       └── main.go
 ├── pkg/
 │   ├── config/            # Configuration management
@@ -323,7 +347,7 @@ miniDNS/
 │   │   └── stats.go
 │   └── ipc/               # Inter-process communication
 │       └── ipc.go
-├── com.minidns.daemon.plist  # LaunchDaemon configuration
+├── com.fuckdopamine.daemon.plist  # LaunchDaemon configuration
 ├── install.sh             # Installation script
 ├── uninstall.sh           # Uninstallation script
 └── main.go               # Legacy standalone version
@@ -333,8 +357,8 @@ miniDNS/
 
 Build both binaries:
 ```bash
-go build -o minidnsd ./cmd/minidnsd
-go build -o miniDNS ./cmd/miniDNS
+go build -o fuckdopamined ./cmd/fuckdopamined
+go build -o fuckdopamine ./cmd/fuckdopamine
 ```
 
 ---
@@ -342,7 +366,7 @@ go build -o miniDNS ./cmd/miniDNS
 ## Contributing
 
 Contributions, issues, and feature requests are welcome!
-Feel free to check [Issues](https://github.com/yourusername/miniDNS/issues) and [Pull Requests](https://github.com/yourusername/miniDNS/pulls).
+Feel free to check [Issues](https://github.com/yourusername/fuckdopamine/issues) and [Pull Requests](https://github.com/yourusername/fuckdopamine/pulls).
 
 ---
 
@@ -352,4 +376,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-Enjoy using miniDNS to manage your browsing experience 24/7!
+Enjoy using fuckdopamine to manage your browsing experience 24/7!

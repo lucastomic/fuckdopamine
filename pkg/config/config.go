@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// Config holds the miniDNS configuration
+// Config holds the fuckdopamine configuration
 type Config struct {
 	BlockedSites []string `json:"blocked_sites"`
 	LogFilePath  string   `json:"log_file_path"`
@@ -14,7 +14,7 @@ type Config struct {
 
 // GetConfigDir returns the configuration directory path
 func GetConfigDir() string {
-	return "/etc/minidns"
+	return "/etc/fuckdopamine"
 }
 
 // GetConfigPath returns the full path to the config file
@@ -24,7 +24,7 @@ func GetConfigPath() string {
 
 // GetStatsPath returns the full path to the stats file
 func GetStatsPath() string {
-	return "/var/lib/minidns/stats.json"
+	return "/var/lib/fuckdopamine/stats.json"
 }
 
 // Load loads the configuration from the config file
@@ -67,6 +67,6 @@ func Save(cfg *Config) error {
 func Default() *Config {
 	return &Config{
 		BlockedSites: []string{"example.com"},
-		LogFilePath:  "/var/log/minidns/dns_requests.json",
+		LogFilePath:  "/var/log/fuckdopamine/dns_requests.json",
 	}
 }

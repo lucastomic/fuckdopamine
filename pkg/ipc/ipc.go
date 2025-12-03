@@ -5,10 +5,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/lucastomic/miniDNS/pkg/stats"
+	"github.com/lucastomic/fuckdopamine/pkg/stats"
 )
 
-const SocketPath = "/tmp/minidns.sock"
+const SocketPath = "/tmp/fuckdopamine.sock"
 
 // Request represents a client request
 type Request struct {

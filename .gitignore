@@ -5,7 +5,7 @@ logs/dns_requests.json
 tmp/
 
 # Build artifacts
-miniDNS
+fuckdopamine
 
 # macOS
 .DS_Store

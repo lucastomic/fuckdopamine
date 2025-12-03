@@ -4,22 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-miniDNS is a lightweight DNS server daemon for macOS that runs 24/7 as a background service, blocking specified websites by refusing their DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The system consists of a daemon that starts automatically on boot and a CLI client for monitoring.
+fuckdopamine is a lightweight DNS server daemon for macOS that runs 24/7 as a background service, blocking specified websites by refusing their DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The system consists of a daemon that starts automatically on boot and a CLI client for monitoring.
 
 ## Architecture
 
-miniDNS has been refactored into a daemon-based architecture with two main components:
+fuckdopamine has been refactored into a daemon-based architecture with two main components:
 
-### 1. Daemon (minidnsd)
-**Location:** `cmd/minidnsd/main.go`
+### 1. Daemon (fuckdopamined)
+**Location:** `cmd/fuckdopamined/main.go`
 
 The daemon runs as a macOS LaunchDaemon with root privileges:
-- Loads configuration from `/etc/minidns/config.json`
+- Loads configuration from `/etc/fuckdopamine/config.json`
 - Backs up and modifies DNS settings to `127.0.0.1`
 - Listens on UDP port 53 for DNS queries
-- Handles IPC via Unix socket at `/tmp/minidns.sock`
-- Logs to `/var/log/minidns/daemon.log` and `/var/log/minidns/dns_requests.json`
-- Saves statistics to `/var/lib/minidns/stats.json` every 5 minutes
+- Handles IPC via Unix socket at `/tmp/fuckdopamine.sock`
+- Logs to `/var/log/fuckdopamine/daemon.log` and `/var/log/fuckdopamine/dns_requests.json`
+- Saves statistics to `/var/lib/fuckdopamine/stats.json` every 5 minutes
 - Restores DNS settings on shutdown
 
 **Key Functions:**
@@ -30,8 +30,8 @@ The daemon runs as a macOS LaunchDaemon with root privileges:
 - `startIPCServer()`: Handles Unix socket connections from CLI
 - `logToFile()`: Writes JSON logs for Grafana integration
 
-### 2. CLI Client (miniDNS)
-**Location:** `cmd/miniDNS/main.go`
+### 2. CLI Client (fuckdopamine)
+**Location:** `cmd/fuckdopamine/main.go`
 
 The CLI client provides an interactive dashboard without requiring sudo:
 - Connects to daemon via Unix socket
@@ -48,7 +48,7 @@ The CLI client provides an interactive dashboard without requiring sudo:
 
 **pkg/config/config.go:**
 - `Config` struct with `BlockedSites` and `LogFilePath`
-- `Load()`: Reads config from `/etc/minidns/config.json`
+- `Load()`: Reads config from `/etc/fuckdopamine/config.json`
 - `Save()`: Writes config to disk
 - `Default()`: Returns default configuration
 
@@ -69,8 +69,8 @@ The CLI client provides an interactive dashboard without requiring sudo:
 
 **Build both binaries:**
 ```bash
-go build -o minidnsd ./cmd/minidnsd
-go build -o miniDNS ./cmd/miniDNS
+go build -o fuckdopamined ./cmd/fuckdopamined
+go build -o fuckdopamine ./cmd/fuckdopamine
 ```
 
 **Install as daemon:**
@@ -80,26 +80,26 @@ sudo ./install.sh
 
 **View dashboard:**
 ```bash
-miniDNS
+fuckdopamine
 # or
-miniDNS dashboard
+fuckdopamine dashboard
 ```
 
 **Check daemon status:**
 ```bash
-miniDNS status
+fuckdopamine status
 ```
 
 **Manage daemon:**
 ```bash
 # Start
-sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 
 # Stop
-sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 
 # View logs
-tail -f /var/log/minidns/daemon.log
+tail -f /var/log/fuckdopamine/daemon.log
 ```
 
 **Uninstall:**
@@ -109,29 +109,29 @@ sudo ./uninstall.sh
 
 ## Configuration
 
-**Config file location:** `/etc/minidns/config.json`
+**Config file location:** `/etc/fuckdopamine/config.json`
 
 ```json
 {
   "blocked_sites": ["example.com", "facebook.com"],
-  "log_file_path": "/var/log/minidns/dns_requests.json"
+  "log_file_path": "/var/log/fuckdopamine/dns_requests.json"
 }
 ```
 
 After editing config, restart daemon:
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.minidns.daemon.plist
-sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
+sudo launchctl unload /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
+sudo launchctl load /Library/LaunchDaemons/com.fuckdopamine.daemon.plist
 ```
 
 ## File Locations
 
-- **Binaries:** `/usr/local/bin/minidnsd`, `/usr/local/bin/miniDNS`
-- **Config:** `/etc/minidns/config.json`
-- **Stats:** `/var/lib/minidns/stats.json`
-- **LaunchDaemon plist:** `/Library/LaunchDaemons/com.minidns.daemon.plist`
-- **Logs:** `/var/log/minidns/` (daemon.log, dns_requests.json, stdout.log, stderr.log)
-- **Unix socket:** `/tmp/minidns.sock`
+- **Binaries:** `/usr/local/bin/fuckdopamined`, `/usr/local/bin/fuckdopamine`
+- **Config:** `/etc/fuckdopamine/config.json`
+- **Stats:** `/var/lib/fuckdopamine/stats.json`
+- **LaunchDaemon plist:** `/Library/LaunchDaemons/com.fuckdopamine.daemon.plist`
+- **Logs:** `/var/log/fuckdopamine/` (daemon.log, dns_requests.json, stdout.log, stderr.log)
+- **Unix socket:** `/tmp/fuckdopamine.sock`
 - **Legacy standalone:** `main.go` (deprecated, kept for reference)
 
 ## Dependencies
@@ -151,7 +151,7 @@ sudo launchctl load /Library/LaunchDaemons/com.minidns.daemon.plist
 
 ## IPC Protocol
 
-Communication between CLI and daemon uses Unix socket at `/tmp/minidns.sock` with JSON messages:
+Communication between CLI and daemon uses Unix socket at `/tmp/fuckdopamine.sock` with JSON messages:
 
 **Request types:**
 - `"ping"`: Health check, returns `"pong"`
@@ -167,7 +167,7 @@ Communication between CLI and daemon uses Unix socket at `/tmp/minidns.sock` wit
 ## Known Behaviors
 
 - Daemon automatically restarts on crash (LaunchDaemon KeepAlive)
-- Stats persist across daemon restarts via `/var/lib/minidns/stats.json`
+- Stats persist across daemon restarts via `/var/lib/fuckdopamine/stats.json`
 - DNS settings restored on daemon shutdown (graceful or signal-based)
 - Logs rotate automatically via Grafana file watching
 - Hardcoded to "Wi-Fi" interface only
