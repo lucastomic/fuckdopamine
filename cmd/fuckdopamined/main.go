@@ -30,6 +30,11 @@ var (
 	pauseMutex sync.RWMutex
 	isPaused   bool
 	pauseUntil time.Time
+
+	// Activity tracking for sparkline (last 60 seconds)
+	activityBuffer [60]uint64
+	activityIndex  int
+	activityMutex  sync.RWMutex
 )
 
 // DNSLogEntry represents a DNS request log entry for Grafana
@@ -65,9 +70,46 @@ func logToFile(domain string, blocked bool, queryType string) {
 	logFile.Sync()
 }
 
+// recordActivity increments the current second's activity counter
+func recordActivity() {
+	activityMutex.Lock()
+	activityBuffer[activityIndex]++
+	activityMutex.Unlock()
+}
+
+// getActivityData returns the last 60 seconds of activity in chronological order
+func getActivityData() []float64 {
+	activityMutex.RLock()
+	defer activityMutex.RUnlock()
+
+	result := make([]float64, 60)
+	for i := 0; i < 60; i++ {
+		// Start from oldest data point (activityIndex+1) and wrap around
+		idx := (activityIndex + 1 + i) % 60
+		result[i] = float64(activityBuffer[idx])
+	}
+	return result
+}
+
+// startActivityTicker advances the ring buffer index every second
+func startActivityTicker() {
+	ticker := time.NewTicker(1 * time.Second)
+	go func() {
+		for range ticker.C {
+			activityMutex.Lock()
+			activityIndex = (activityIndex + 1) % 60
+			activityBuffer[activityIndex] = 0 // Reset the new slot
+			activityMutex.Unlock()
+		}
+	}()
+}
+
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
+
+	// Record activity for sparkline
+	recordActivity()
 
 	// Check if pause expired and auto-resume
 	checkAndResumePause()
@@ -205,7 +247,7 @@ func startIPCServer(listener net.Listener) {
 		if err != nil {
 			continue
 		}
-		go ipc.HandleConnection(conn, statsData, forbidden, isPausedFn, pauseUntilFn, pauseBlocking)
+		go ipc.HandleConnection(conn, statsData, forbidden, isPausedFn, pauseUntilFn, pauseBlocking, getActivityData)
 	}
 }
 
@@ -221,6 +263,9 @@ func main() {
 	}
 
 	log.Println("[STARTUP] fuckdopamine daemon starting...")
+
+	// Start activity tracking ticker for sparkline
+	startActivityTicker()
 
 	// Load configuration
 	cfg, err := config.Load()

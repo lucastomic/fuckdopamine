@@ -26,11 +26,14 @@ type Response struct {
 	Error           string             `json:"error,omitempty"`
 
 	// Pause info
-	IsPaused         bool   `json:"is_paused,omitempty"`
-	PauseEndsAt      string `json:"pause_ends_at,omitempty"`
-	PauseCount       uint64 `json:"pause_count,omitempty"`
-	TotalPauseTime   string `json:"total_pause_time,omitempty"`
+	IsPaused          bool   `json:"is_paused,omitempty"`
+	PauseEndsAt       string `json:"pause_ends_at,omitempty"`
+	PauseCount        uint64 `json:"pause_count,omitempty"`
+	TotalPauseTime    string `json:"total_pause_time,omitempty"`
 	TotalBlockingTime string `json:"total_blocking_time,omitempty"`
+
+	// Activity data for sparkline (last 60 seconds)
+	RecentActivity []float64 `json:"recent_activity,omitempty"`
 }
 
 // SendRequest sends a request to the daemon and returns the response
@@ -61,7 +64,7 @@ func SendRequest(req Request) (*Response, error) {
 }
 
 // HandleConnection handles a single IPC connection
-func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool, isPausedFn func() bool, pauseUntilFn func() time.Time, pauseFn func()) {
+func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]bool, isPausedFn func() bool, pauseUntilFn func() time.Time, pauseFn func(), getActivityFn func() []float64) {
 	defer conn.Close()
 
 	// Set deadline for operations
@@ -95,6 +98,7 @@ func HandleConnection(conn net.Conn, s *stats.Stats, blockedSites map[string]boo
 			PauseCount:        pauseCount,
 			TotalPauseTime:    formatDuration(totalPauseTime),
 			TotalBlockingTime: formatDuration(totalBlockingTime),
+			RecentActivity:    getActivityFn(),
 		}
 
 		if isPausedFn() {
