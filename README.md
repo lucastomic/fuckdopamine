@@ -1,21 +1,38 @@
 # miniDNS
 
-miniDNS is a lightweight DNS server daemon for macOS that runs 24/7 in the background, blocking specified websites by refusing DNS queries. All other queries are forwarded to Google DNS (8.8.8.8). The daemon starts automatically on boot and includes a CLI dashboard for real-time monitoring.
+**A lightweight DNS-based website blocker that runs 24/7 on macOS**
+
+miniDNS is a background service that blocks access to distracting websites by intercepting DNS queries at the system level. Perfect for productivity, focus time, parental controls, or breaking social media habits.
+
+Unlike browser extensions that can be easily disabled, miniDNS runs as a system daemon with root privileges, making it more resistant to circumvention. All DNS queries are handled locally, with blocked sites returning a DNS refusal and all other queries forwarded to Google DNS (8.8.8.8).
 
 > **Warning:**
-> Modifying your DNS settings can disrupt your internet connection if not restored properly. Use at your own risk. The current implementation is targeted for macOS (using `networksetup` commands) and requires administrator privileges for installation.
+> This tool modifies your system DNS settings. While it safely restores them on uninstall, improper use could temporarily disrupt your internet connection. Requires administrator privileges for installation.
+
+---
+
+## What Can You Do With miniDNS?
+
+- **🎯 Stay Focused:** Block social media during work hours
+- **⏰ Build Better Habits:** Limit access to time-wasting websites
+- **👨‍👩‍👧 Parental Controls:** Block inappropriate content on family devices
+- **📊 Track Usage:** Monitor which sites are being accessed
+- **⏸️ Temporary Access:** Pause blocking for 10 minutes when needed
+- **📈 Analyze Patterns:** View statistics on blocked vs. allowed requests
 
 ---
 
 ## Features
 
-- **Background Daemon:** Runs continuously as a macOS LaunchDaemon, starting automatically on boot
-- **DNS Blocking:** Block specific websites by refusing DNS queries for them
-- **Real-time Dashboard:** Interactive terminal UI showing statistics and top requested domains
-- **Persistent Stats:** Statistics survive daemon restarts
-- **Configuration File:** Easy-to-edit JSON configuration for blocked sites
-- **Grafana Integration:** JSON logs for visualization with Grafana
-- **IPC Communication:** Unix socket-based communication between daemon and CLI
+- ✅ **Always-On Protection:** Runs continuously as a macOS LaunchDaemon, starting automatically on boot
+- ✅ **System-Level Blocking:** Blocks all DNS queries, works across all browsers and applications
+- ✅ **Subdomain Blocking:** Automatically blocks all subdomains (e.g., blocking `reddit.com` also blocks `old.reddit.com`)
+- ✅ **Pause Feature:** Temporarily disable blocking for 10 minutes when you need access
+- ✅ **Real-Time Dashboard:** Beautiful terminal UI showing live statistics
+- ✅ **Persistent Statistics:** Track total pauses, blocking time, and request patterns
+- ✅ **Easy Configuration:** Simple JSON file for managing blocked sites
+- ✅ **Grafana Integration:** Export logs for advanced visualization
+- ✅ **No Sudo Required:** Dashboard and pause command work without admin privileges
 
 ---
 
@@ -78,8 +95,9 @@ go build -o /usr/local/bin/minidnsd ./cmd/minidnsd
 go build -o /usr/local/bin/miniDNS ./cmd/miniDNS
 
 # Create directories
-mkdir -p ~/.minidns
-mkdir -p /var/log/minidns
+sudo mkdir -p /etc/minidns
+sudo mkdir -p /var/lib/minidns
+sudo mkdir -p /var/log/minidns
 
 # Create config file (see Configuration section)
 # Install LaunchDaemon
@@ -130,8 +148,10 @@ miniDNS dashboard
 ```
 
 The dashboard shows:
+- Current pause status (active or paused with countdown)
 - Current uptime
 - Total, blocked, and allowed request counts
+- Pause statistics (total pauses, time blocking, time paused)
 - Top 10 most requested domains
 - Real-time updates every second
 
@@ -144,6 +164,16 @@ Check if the daemon is running:
 ```bash
 miniDNS status
 ```
+
+### Pause Blocking
+
+Temporarily pause blocking for 10 minutes:
+
+```bash
+miniDNS pause
+```
+
+This allows access to all blocked sites for 10 minutes, then automatically resumes blocking. The pause statistics are tracked persistently and displayed in the dashboard.
 
 ### Daemon Management
 
@@ -175,17 +205,24 @@ tail -f /var/log/minidns/daemon.log
 
 2. **DNS Query Handling:**
    - All DNS queries go to `minidnsd`
+   - If paused, all queries are allowed through
    - Blocked sites receive `REFUSED` response
    - Other queries forwarded to Google DNS (8.8.8.8)
    - All requests logged and counted
 
-3. **Dashboard:**
+3. **Pause Mechanism:**
+   - Pause command sets 10-minute timer via IPC
+   - Daemon allows all DNS queries during pause
+   - Auto-resumes blocking when timer expires
+   - Pause statistics tracked and persisted
+
+4. **Dashboard:**
    - CLI connects to Unix socket
    - Fetches stats from daemon
    - Renders interactive UI
    - Updates every second
 
-4. **On Shutdown:**
+5. **On Shutdown:**
    - Daemon restores original DNS settings
    - Saves statistics to disk
    - Cleans up socket
@@ -220,9 +257,10 @@ This will:
 - Optionally remove logs
 - Restore DNS settings
 
-**Note:** User configuration (`/etc/minidns/`) is kept. Remove manually if desired:
+**Note:** Configuration and statistics are kept. Remove manually if desired:
 ```bash
-rm -rf ~/.minidns
+sudo rm -rf /etc/minidns
+sudo rm -rf /var/lib/minidns
 ```
 
 ---
